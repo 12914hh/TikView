@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+tokens.json
+.auth_state
+build/
+dist/
+*.spec
+worker/.wrangler/

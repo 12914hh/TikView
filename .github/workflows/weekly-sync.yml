@@ -1,0 +1,38 @@
+name: Weekly TikView sync
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Beijing schedule
+        id: due
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_TIKVIEW_SPREADSHEET_TOKEN: ${{ secrets.FEISHU_TIKVIEW_SPREADSHEET_TOKEN }}
+        run: python3 auto_sync_due.py
+      - uses: actions/setup-python@v5
+        if: steps.due.outputs.due == 'true'
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        if: steps.due.outputs.due == 'true'
+        run: pip install -r requirements.txt
+      - name: Pull view counts
+        if: steps.due.outputs.due == 'true'
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_SPREADSHEET_TOKEN: ${{ secrets.FEISHU_SPREADSHEET_TOKEN }}
+          FEISHU_TIKVIEW_SPREADSHEET_TOKEN: ${{ secrets.FEISHU_TIKVIEW_SPREADSHEET_TOKEN }}
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+        run: python pull.py --write
