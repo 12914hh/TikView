@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TikView authorization</title>
+</head>
+<body>
+  <h1>TikView authorization</h1>
+  <p>If TikTok sent you here, copy the full address from the browser bar and keep it. Do not send it to anyone else.</p>
+  <p id="status"></p>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const status = document.getElementById("status");
+    if (params.get("code")) {
+      status.textContent = "Authorization code received. You can close this page after copying the address.";
+    } else if (params.get("error")) {
+      status.textContent = "Authorization was not completed: " + params.get("error");
+    } else {
+      status.textContent = "This page is the TikView login callback. It is waiting for TikTok.";
+    }
+  </script>
+</body>
+</html>
