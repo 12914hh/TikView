@@ -22,6 +22,7 @@ class Schedule:
     weekday: int = DEFAULT_WEEKDAY
     hour: int = DEFAULT_HOUR
     enabled: bool = False
+    last_run: str = ""
     source: str = "默认"
 
     def when(self) -> str:
@@ -90,9 +91,39 @@ def write_feishu(schedule: Schedule) -> None:
             (sheet_id, "A", 1, "星期"),
             (sheet_id, "B", 1, "小时"),
             (sheet_id, "C", 1, "开关"),
+            (sheet_id, "D", 1, "上次运行"),
             (sheet_id, "A", 2, str(weekday)),
             (sheet_id, "B", 2, str(hour)),
             (sheet_id, "C", 2, enabled_text(schedule.enabled)),
+            (sheet_id, "D", 2, schedule.last_run or ""),
+        ]
+    )
+
+
+def mark_schedule_ran(day: str = "") -> None:
+    """更新飞书「配置」表的上次运行日期（北京时间 YYYY-MM-DD）。"""
+    from datetime import datetime, timedelta, timezone
+
+    from dotenv import load_dotenv
+
+    from feishu import FeishuClient
+    from sync import ROOT, _env, _spreadsheet_token as token_from_env
+
+    if not day:
+        day = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    load_dotenv(ROOT / ".env")
+    current = load_schedule()
+    current.last_run = day
+    client = FeishuClient(
+        _env("FEISHU_APP_ID"),
+        _env("FEISHU_APP_SECRET"),
+        token_from_env(_env("FEISHU_TIKVIEW_SPREADSHEET_TOKEN")),
+    )
+    sheet_id = _ensure_config_sheet(client)
+    client.write_cells(
+        [
+            (sheet_id, "D", 1, "上次运行"),
+            (sheet_id, "D", 2, day),
         ]
     )
 
@@ -124,7 +155,10 @@ def _parse_config_rows(rows: list[list]) -> Schedule | None:
     enabled = False
     if "开关" in header:
         enabled = parse_enabled(_at(data, enabled_index))
-    return Schedule(weekday=weekday, hour=hour, enabled=enabled)
+    last_run = ""
+    if "上次运行" in header:
+        last_run = _at(data, _header_index(header, "上次运行", 3))
+    return Schedule(weekday=weekday, hour=hour, enabled=enabled, last_run=last_run)
 
 
 def _ensure_config_sheet(client) -> str:
@@ -137,6 +171,7 @@ def _ensure_config_sheet(client) -> str:
             (sheet_id, "A", 1, "星期"),
             (sheet_id, "B", 1, "小时"),
             (sheet_id, "C", 1, "开关"),
+            (sheet_id, "D", 1, "上次运行"),
         ]
     )
     return sheet_id

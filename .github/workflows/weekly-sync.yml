@@ -2,7 +2,9 @@ name: Weekly TikView sync
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    # 每小时两次，降低 GitHub 漏触发整点任务的概率
+    - cron: "5 * * * *"
+    - cron: "35 * * * *"
   workflow_dispatch:
 
 jobs:

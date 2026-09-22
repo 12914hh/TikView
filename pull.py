@@ -172,6 +172,13 @@ def main() -> int:
         return 1
     print(f"已写回 {len(updates)} 个单元格。")
     _notify_bot(summary)
+    try:
+        from schedule_conf import mark_schedule_ran
+
+        mark_schedule_ran()
+        print("已记录今日自动更新完成。")
+    except Exception as exc:
+        print(f"记录运行日期失败：{exc}")
     return 0
 
 

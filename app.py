@@ -114,7 +114,12 @@ class App(tk.Tk):
         except (ValueError, IndexError):
             messagebox.showwarning("TikView", "请选择星期和小时。")
             return None
-        return Schedule(weekday=weekday, hour=hour, enabled=enabled)
+        return Schedule(
+            weekday=weekday,
+            hour=hour,
+            enabled=enabled,
+            last_run=self._schedule.last_run,
+        )
 
     def _persist_schedule(self, schedule: Schedule, message: str) -> None:
         if self._saving_schedule:
