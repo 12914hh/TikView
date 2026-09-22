@@ -47,13 +47,29 @@ npx wrangler secret put TIKTOK_CLIENT_KEY
 npx wrangler secret put TIKTOK_CLIENT_SECRET
 npx wrangler secret put TIKTOK_REDIRECT_URI
 npx wrangler secret put STATE_SECRET
-npx wrangler secret put GH_DISPATCH_TOKEN
 npx wrangler deploy
 ```
 
-`GH_DISPATCH_TOKEN` 是 GitHub 的 Personal Access Token，用来让 Cloudflare 每小时叫醒一次 Actions（弥补 GitHub 自己定时漏触发）。权限勾选这个仓库的 **Contents: Read** 和 **Actions: Write**，或经典 token 勾 `repo`。没有它时授权回调仍可用，只是自动更新少一层保险。
-
 审核还没变成 Live 时，只有 Sandbox 的 Target user 能点链接。作者页面上的成功、失败文案和错误码对照在 `docs/callback文案.md`。
+
+## 自动更新（不依赖 Cloudflare）
+
+GitHub 自己的 `schedule` 经常漏触发。更稳的做法是用免费网站定时服务每小时叫醒一次 Actions；电脑关着也能跑。
+
+1. 在 GitHub 建一个只用于这个仓库的 Token（细粒度）：权限 **Contents: Read**、**Actions: Write**。
+2. 打开 [cron-job.org](https://cron-job.org/)（或其他免费 HTTP 定时）注册，新建任务：
+   - URL：`https://api.github.com/repos/12914hh/TikView/dispatches`
+   - 方法：`POST`
+   - 调度：每小时一次（例如每小时的第 10 分钟）
+   - Header：
+     - `Authorization: Bearer 你的Token`
+     - `Accept: application/vnd.github+json`
+     - `X-GitHub-Api-Version: 2022-11-28`
+     - `User-Agent: tikview-cron`
+   - Body（JSON）：`{"event_type":"tikview-schedule-check"}`
+3. 窗口里选好星期/小时，点「开启定时任务」。
+
+叫醒之后仍会读飞书「配置」：开关关掉就不跑；不到设定时间也不跑；过了设定时间且当天还没成功过会补跑一次。网页上点 Run workflow 仍可随时强制跑。
 
 ## 命令行
 
@@ -69,4 +85,4 @@ npx wrangler deploy
 1. 把 `.env` 里的 TikTok Client key / secret 换成 Production，Worker 上的同一对密钥也要换。Production 的 Redirect URI 设为同一个 `/callback` 地址。审核期间不要动 Production。
 2. 在窗口里生成链接，让作者自己点开授权。
 3. 在 GitHub 仓库的 Secrets 里配置 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_SPREADSHEET_TOKEN`、`FEISHU_TIKVIEW_SPREADSHEET_TOKEN`、`FEISHU_CHAT_ID`、`TIKTOK_CLIENT_KEY`、`TIKTOK_CLIENT_SECRET`。不用再存 `tokens.json`。
-4. 自动更新时间在窗口里选星期和小时后点「保存时间」，再点「开启定时任务」。时间写在 TikView 表的「配置」工作表。到点后由 GitHub Actions 更新；Cloudflare Worker 每小时还会再叫醒一次，避免 GitHub 漏触发。第一次要用时，把项目推到 GitHub，配好仓库 Secrets，并给 Worker 配上 `GH_DISPATCH_TOKEN`。
+4. 自动更新时间在窗口里选星期和小时后点「保存时间」，再点「开启定时任务」。另按上面「自动更新」一节配好免费定时叫醒。电脑可以关着。

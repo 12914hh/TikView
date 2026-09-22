@@ -2,9 +2,8 @@ name: Weekly TikView sync
 
 on:
   schedule:
-    # 每小时两次；GitHub 仍可能漏触发，Cloudflare Worker 会再补唤醒
-    - cron: "5 * * * *"
-    - cron: "35 * * * *"
+    # GitHub 自己的定时可能漏；建议另配免费 HTTP 定时叫醒（见 README）
+    - cron: "10 * * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [tikview-schedule-check]
