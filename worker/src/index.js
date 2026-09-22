@@ -27,7 +27,35 @@ export default {
       200,
     );
   },
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(wakeGithubSchedule(env));
+  },
 };
+
+async function wakeGithubSchedule(env) {
+  const token = String(env.GH_DISPATCH_TOKEN || "").trim();
+  const repo = String(env.GH_REPO || "12914hh/TikView").trim();
+  if (!token) {
+    console.log("缺少 GH_DISPATCH_TOKEN，跳过唤醒 GitHub Actions。");
+    return;
+  }
+  const response = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + token,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "tikview-worker",
+    },
+    body: JSON.stringify({ event_type: "tikview-schedule-check" }),
+  });
+  if (response.status === 204) {
+    console.log("已唤醒 GitHub Actions 检查定时任务。");
+    return;
+  }
+  const detail = await response.text();
+  console.log("唤醒 GitHub 失败 HTTP " + response.status + " " + detail.slice(0, 300));
+}
 
 async function handleCallback(url, env) {
   const state = url.searchParams.get("state") || "";

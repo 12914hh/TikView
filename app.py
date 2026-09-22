@@ -17,14 +17,18 @@ from state_sig import sign_state
 from sync import ROOT
 from tiktok import authorization_url
 
+LOG_PATH = ROOT / "window.log"
+MAX_LOG_CHARS = 200_000
+
 
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("TikView")
-        self.geometry("680x540")
+        self.geometry("680x560")
         load_dotenv(ROOT / ".env")
         self._saving_schedule = False
+        self._loading_schedule = False
         self._schedule = Schedule()
 
         frame = ttk.Frame(self, padding=16)
@@ -52,17 +56,38 @@ class App(tk.Tk):
         )
         self.hour.pack(side="left", padx=(6, 4))
         ttk.Label(row, text="点").pack(side="left")
-        ttk.Button(row, text="保存时间", command=self.save_schedule).pack(side="left", padx=(16, 8))
+        self.save_button = ttk.Button(row, text="保存时间", command=self.save_schedule)
+        self.save_button.pack(side="left", padx=(16, 8))
         self.toggle_button = ttk.Button(row, text="开启定时任务", command=self.toggle_schedule)
         self.toggle_button.pack(side="left")
         self.schedule_hint = ttk.Label(schedule, text="正在读取当前时间…")
         self.schedule_hint.pack(anchor="w", pady=(8, 0))
 
-        self.link = scrolledtext.ScrolledText(frame, height=4, wrap="word")
+        self.link = scrolledtext.ScrolledText(
+            frame,
+            height=4,
+            wrap="word",
+            state="disabled",
+            background="#e8e8e8",
+            foreground="#444444",
+            relief="flat",
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground="#c8c8c8",
+            highlightcolor="#c8c8c8",
+        )
         self.link.pack(fill="x", pady=12)
+
+        log_bar = ttk.Frame(frame)
+        log_bar.pack(fill="x")
+        ttk.Label(log_bar, text="运行日志").pack(side="left")
+        ttk.Button(log_bar, text="清除日志", command=self.clear_log).pack(side="right")
+
         self.log = scrolledtext.ScrolledText(frame, height=12, wrap="word", state="disabled")
-        self.log.pack(fill="both", expand=True)
+        self.log.pack(fill="both", expand=True, pady=(4, 0))
+        self._load_saved_log()
         self._apply_schedule(Schedule(source="默认"))
+        self._set_schedule_loading(True, "正在读取定时配置…")
         self.after(200, self._refresh_schedule)
 
     def make_link(self) -> None:
@@ -79,8 +104,7 @@ class App(tk.Tk):
         if "workers.dev" not in redirect_uri and not redirect_uri.rstrip("/").endswith("/callback"):
             self._write("当前回调还不是 Worker 地址。作者点完后不会自动保存，需要先部署回调并改 Redirect URI。\n")
         url = authorization_url(client_key, redirect_uri, sign_state(secret, author_id))
-        self.link.delete("1.0", "end")
-        self.link.insert("1.0", url)
+        self._set_link(url)
         self.clipboard_clear()
         self.clipboard_append(url)
         self._write("授权链接已生成，并复制到剪贴板。发给这位作者即可。\n")
@@ -122,10 +146,11 @@ class App(tk.Tk):
         )
 
     def _persist_schedule(self, schedule: Schedule, message: str) -> None:
-        if self._saving_schedule:
-            self._write("上一次保存还在进行。\n")
+        if self._saving_schedule or self._loading_schedule:
+            self._write("上一次操作还在进行。\n")
             return
         self._saving_schedule = True
+        self._set_schedule_loading(True, message.rstrip("…") + "…")
         self._write(message + "\n")
         threading.Thread(target=self._save_schedule, args=(schedule,), daemon=True).start()
 
@@ -140,9 +165,11 @@ class App(tk.Tk):
         self.after(0, lambda: self._after_save(schedule, error))
 
     def _after_save(self, schedule: Schedule, error: str) -> None:
+        self._set_schedule_loading(False)
         if error:
             self._write(f"飞书「配置」表写入失败：{error}\n")
             messagebox.showerror("TikView", "没有写上飞书「配置」表。看窗口里的说明。")
+            self._apply_schedule(self._schedule)
             return
         schedule.source = "飞书「配置」表"
         self._apply_schedule(schedule)
@@ -155,17 +182,50 @@ class App(tk.Tk):
         threading.Thread(target=self._load_remote_schedule, daemon=True).start()
 
     def _load_remote_schedule(self) -> None:
+        error = ""
+        schedule = self._schedule
         try:
             schedule = load_schedule()
-        except Exception:
+        except Exception as exc:
+            error = str(exc)
+        self.after(0, lambda: self._after_load_schedule(schedule, error))
+
+    def _after_load_schedule(self, schedule: Schedule, error: str) -> None:
+        self._set_schedule_loading(False)
+        if error:
+            self._write(f"读取定时配置失败：{error}\n")
+            self._apply_schedule(self._schedule)
             return
-        self.after(0, lambda: self._apply_schedule(schedule))
+        self._apply_schedule(schedule)
+
+    def _set_schedule_loading(self, busy: bool, message: str = "") -> None:
+        self._loading_schedule = busy
+        if busy:
+            self.weekday.configure(state="disabled")
+            self.hour.configure(state="disabled")
+            self.save_button.configure(state="disabled")
+            self.toggle_button.configure(text="处理中…", state="disabled")
+            if message:
+                self.schedule_hint.configure(text=message)
+            return
+        self.save_button.configure(state="normal")
+        self.toggle_button.configure(state="normal")
+        self.weekday.configure(state="readonly")
+        self.hour.configure(state="readonly")
 
     def _apply_schedule(self, schedule: Schedule) -> None:
         self._schedule = schedule
+        if self._loading_schedule or self._saving_schedule:
+            return
         self.weekday.set(WEEKDAYS[schedule.weekday - 1])
         self.hour.set(f"{schedule.hour:02d}")
-        self.toggle_button.configure(text="停止定时任务" if schedule.enabled else "开启定时任务")
+        self.toggle_button.configure(
+            text="停止定时任务" if schedule.enabled else "开启定时任务",
+            state="normal",
+        )
+        self.save_button.configure(state="normal")
+        self.weekday.configure(state="readonly")
+        self.hour.configure(state="readonly")
         hint = f"当前：{schedule.when()}。定时任务{schedule.status()}"
         if schedule.source:
             hint += f"。来自{schedule.source}"
@@ -240,11 +300,52 @@ class App(tk.Tk):
             self._write(rest)
         self._write(f"结束，退出码 {self._reader.returncode}\n")
 
+    def clear_log(self) -> None:
+        self.log.configure(state="normal")
+        self.log.delete("1.0", "end")
+        self.log.configure(state="disabled")
+        try:
+            LOG_PATH.write_text("", encoding="utf-8")
+        except OSError as exc:
+            messagebox.showerror("TikView", f"清除日志文件失败：{exc}")
+
+    def _load_saved_log(self) -> None:
+        if not LOG_PATH.exists():
+            return
+        try:
+            text = LOG_PATH.read_text(encoding="utf-8")
+        except OSError:
+            return
+        if not text:
+            return
+        if len(text) > MAX_LOG_CHARS:
+            text = text[-MAX_LOG_CHARS:]
+        self.log.configure(state="normal")
+        self.log.insert("end", text)
+        if not text.endswith("\n"):
+            self.log.insert("end", "\n")
+        self.log.see("end")
+        self.log.configure(state="disabled")
+
+    def _set_link(self, text: str) -> None:
+        self.link.configure(state="normal")
+        self.link.delete("1.0", "end")
+        self.link.insert("1.0", text)
+        self.link.configure(state="disabled", background="#e8e8e8", foreground="#444444")
+
     def _write(self, text: str) -> None:
         self.log.configure(state="normal")
         self.log.insert("end", text)
         self.log.see("end")
+        content = self.log.get("1.0", "end")
+        if len(content) > MAX_LOG_CHARS:
+            self.log.delete("1.0", f"end-{MAX_LOG_CHARS}c")
+            content = self.log.get("1.0", "end")
         self.log.configure(state="disabled")
+        try:
+            LOG_PATH.write_text(content.rstrip("\n") + "\n", encoding="utf-8")
+        except OSError:
+            pass
 
 
 def _python() -> Path:
