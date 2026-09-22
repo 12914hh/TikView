@@ -9,7 +9,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check Beijing schedule
         id: due
         env:
@@ -18,7 +18,7 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_TIKVIEW_SPREADSHEET_TOKEN: ${{ secrets.FEISHU_TIKVIEW_SPREADSHEET_TOKEN }}
         run: python3 auto_sync_due.py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.due.outputs.due == 'true'
         with:
           python-version: "3.12"
