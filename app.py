@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
@@ -102,12 +103,12 @@ class App(tk.Tk):
             messagebox.showerror("TikView", " .env 里还缺 STATE_SECRET、TIKTOK_CLIENT_KEY 或 TIKTOK_REDIRECT_URI。")
             return
         if "workers.dev" not in redirect_uri and not redirect_uri.rstrip("/").endswith("/callback"):
-            self._write("当前回调还不是 Worker 地址。作者点完后不会自动保存，需要先部署回调并改 Redirect URI。\n")
+            self._info("当前回调还不是 Worker 地址。作者点完后不会自动保存，需要先部署回调并改 Redirect URI。")
         url = authorization_url(client_key, redirect_uri, sign_state(secret, author_id))
         self._set_link(url)
         self.clipboard_clear()
         self.clipboard_append(url)
-        self._write("授权链接已生成，并复制到剪贴板。发给这位作者即可。\n")
+        self._info("授权链接已生成，并复制到剪贴板。发给这位作者即可。")
 
     def copy_link(self) -> None:
         text = self.link.get("1.0", "end").strip()
@@ -115,7 +116,7 @@ class App(tk.Tk):
             return
         self.clipboard_clear()
         self.clipboard_append(text)
-        self._write("链接已复制。\n")
+        self._info("链接已复制。")
 
     def save_schedule(self) -> None:
         schedule = self._schedule_from_widgets(self._schedule.enabled)
@@ -147,11 +148,11 @@ class App(tk.Tk):
 
     def _persist_schedule(self, schedule: Schedule, message: str) -> None:
         if self._saving_schedule or self._loading_schedule:
-            self._write("上一次操作还在进行。\n")
+            self._info("上一次操作还在进行。")
             return
         self._saving_schedule = True
         self._set_schedule_loading(True, message.rstrip("…") + "…")
-        self._write(message + "\n")
+        self._info(message)
         threading.Thread(target=self._save_schedule, args=(schedule,), daemon=True).start()
 
     def _save_schedule(self, schedule: Schedule) -> None:
@@ -167,16 +168,16 @@ class App(tk.Tk):
     def _after_save(self, schedule: Schedule, error: str) -> None:
         self._set_schedule_loading(False)
         if error:
-            self._write(f"飞书「配置」表写入失败：{error}\n")
+            self._error(f"飞书「配置」表写入失败：{error}")
             messagebox.showerror("TikView", "没有写上飞书「配置」表。看窗口里的说明。")
             self._apply_schedule(self._schedule)
             return
         schedule.source = "飞书「配置」表"
         self._apply_schedule(schedule)
         if schedule.enabled:
-            self._write(f"定时任务已开启，{schedule.when()} 会自动更新播放量，电脑可以关着。\n")
+            self._info(f"定时任务已开启，{schedule.when()} 会自动更新播放量，电脑可以关着。")
         else:
-            self._write(f"已保存 {schedule.when()}。定时任务已停止，不会自动跑。点「开启定时任务」后才会跑。\n")
+            self._info(f"已保存 {schedule.when()}。定时任务已停止，不会自动跑。点「开启定时任务」后才会跑。")
 
     def _refresh_schedule(self) -> None:
         threading.Thread(target=self._load_remote_schedule, daemon=True).start()
@@ -193,7 +194,7 @@ class App(tk.Tk):
     def _after_load_schedule(self, schedule: Schedule, error: str) -> None:
         self._set_schedule_loading(False)
         if error:
-            self._write(f"读取定时配置失败：{error}\n")
+            self._error(f"读取定时配置失败：{error}")
             self._apply_schedule(self._schedule)
             return
         self._apply_schedule(schedule)
@@ -237,12 +238,12 @@ class App(tk.Tk):
 
     def update_views(self) -> None:
         if getattr(self, "_reader", None) is not None and self._reader.poll() is None:
-            self._write("上一次更新还在进行。\n")
+            self._info("上一次更新还在进行。")
             return
         if getattr(self, "_updating", False):
-            self._write("上一次更新还在进行。\n")
+            self._info("上一次更新还在进行。")
             return
-        self._write("开始更新播放量…\n")
+        self._info("开始更新播放量…")
         if getattr(sys, "frozen", False):
             self._updating = True
             threading.Thread(target=self._run_pull, daemon=True).start()
@@ -283,22 +284,46 @@ class App(tk.Tk):
             sys.stderr = old_err
             sys.argv = old_argv
             self._updating = False
-        text = buffer.getvalue() + f"结束，退出码 {code}\n"
-        self.after(0, lambda: self._write(text))
+        text = buffer.getvalue()
+        self.after(0, lambda: self._append_process_output(text, code))
 
     def _read_output(self) -> None:
         if self._reader.stdout is None:
             return
         line = self._reader.stdout.readline()
         if line:
-            self._write(line)
+            self._append_process_line(line)
         if self._reader.poll() is None:
             self.after(100, self._read_output)
             return
         rest = self._reader.stdout.read()
         if rest:
-            self._write(rest)
-        self._write(f"结束，退出码 {self._reader.returncode}\n")
+            self._append_process_output(rest, None)
+        code = self._reader.returncode
+        if code:
+            self._error(f"结束，退出码 {code}")
+        else:
+            self._info(f"结束，退出码 {code}")
+
+    def _append_process_output(self, text: str, code: int | None) -> None:
+        for line in text.splitlines():
+            if line.strip():
+                self._append_process_line(line)
+        if code is not None:
+            if code:
+                self._error(f"结束，退出码 {code}")
+            else:
+                self._info(f"结束，退出码 {code}")
+
+    def _append_process_line(self, line: str) -> None:
+        text = line.rstrip("\n")
+        if not text:
+            return
+        lower = text.lower()
+        if any(key in text for key in ("失败", "错误", "异常", "不可用")) or "error" in lower:
+            self._error(text)
+        else:
+            self._info(text)
 
     def clear_log(self) -> None:
         self.log.configure(state="normal")
@@ -333,9 +358,17 @@ class App(tk.Tk):
         self.link.insert("1.0", text)
         self.link.configure(state="disabled", background="#e8e8e8", foreground="#444444")
 
-    def _write(self, text: str) -> None:
+    def _info(self, text: str) -> None:
+        self._write(text, "信息")
+
+    def _error(self, text: str) -> None:
+        self._write(text, "错误")
+
+    def _write(self, text: str, level: str = "信息") -> None:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        line = f"[{stamp}] [{level}] {text.rstrip()}\n"
         self.log.configure(state="normal")
-        self.log.insert("end", text)
+        self.log.insert("end", line)
         self.log.see("end")
         content = self.log.get("1.0", "end")
         if len(content) > MAX_LOG_CHARS:

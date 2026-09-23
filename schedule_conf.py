@@ -100,8 +100,8 @@ def write_feishu(schedule: Schedule) -> None:
     )
 
 
-def mark_schedule_ran(day: str = "") -> None:
-    """更新飞书「配置」表的上次运行日期（北京时间 YYYY-MM-DD）。"""
+def mark_schedule_ran(when: str = "") -> None:
+    """更新飞书「配置」表的上次运行时间（北京时间，精确到小时，如 2026-09-23 15:00）。"""
     from datetime import datetime, timedelta, timezone
 
     from dotenv import load_dotenv
@@ -109,11 +109,11 @@ def mark_schedule_ran(day: str = "") -> None:
     from feishu import FeishuClient
     from sync import ROOT, _env, _spreadsheet_token as token_from_env
 
-    if not day:
-        day = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    if not when:
+        when = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:00")
     load_dotenv(ROOT / ".env")
     current = load_schedule()
-    current.last_run = day
+    current.last_run = when
     client = FeishuClient(
         _env("FEISHU_APP_ID"),
         _env("FEISHU_APP_SECRET"),
@@ -123,7 +123,7 @@ def mark_schedule_ran(day: str = "") -> None:
     client.write_cells(
         [
             (sheet_id, "D", 1, "上次运行"),
-            (sheet_id, "D", 2, day),
+            (sheet_id, "D", 2, when),
         ]
     )
 

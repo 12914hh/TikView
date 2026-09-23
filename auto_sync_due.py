@@ -23,9 +23,11 @@ def main() -> int:
     schedule = load_schedule()
     now = datetime.now(BEIJING)
     today = now.strftime("%Y-%m-%d")
+    # 上次运行可能是 YYYY-MM-DD 或 YYYY-MM-DD HH:00，补跑只比日期
+    last_run_day = (schedule.last_run or "").strip()[:10]
     weekday_ok = now.isoweekday() == schedule.weekday
     on_hour = weekday_ok and now.hour == schedule.hour
-    catch_up = weekday_ok and now.hour > schedule.hour and schedule.last_run != today
+    catch_up = weekday_ok and now.hour > schedule.hour and last_run_day != today
     due = schedule.enabled and (force or on_hour or catch_up)
     if os.environ.get("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
