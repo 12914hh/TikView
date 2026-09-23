@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 from feishu import FeishuError, cell_text, column_letter
 from sync import ROOT, _business_client, _cell, _env, _load_sheet, _locate_columns, _tikview_client
-from tiktok import TikTokError, TokenStore, list_view_counts
+from tiktok import TikTokError, TokenStore, query_view_counts
 from tokens_sheet import load_auth_records, upsert_auth_record
 
 TOKEN_PATH = ROOT / "tokens.json"
@@ -79,20 +79,24 @@ def main() -> int:
     success = 0
     expired = 0
     skipped = 0
-    unmatched_videos = 0
+    missing_videos = 0
     succeeded_authors: list[str] = []
     failed_authors: list[str] = []
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     print(f"已保存授权：{len(author_list)} 个作者")
-    print(f"表里有视频 ID 的行：{len(sheet_rows)}")
+    print(f"表里待处理行：{len(sheet_rows)}")
 
     for record in author_list:
         label = record.get("author_id") or record["open_id"][:8]
+        query_ids = _video_ids_for_author(sheet_rows, record)
         try:
             record = store.refresh_if_needed(record, client_key, client_secret)
-            counts = list_view_counts(record["access_token"])
-            record["video_ids"] = list(counts)
+            counts = (
+                query_view_counts(record["access_token"], query_ids) if query_ids else {}
+            )
+            if query_ids:
+                record["video_ids"] = query_ids
             record["status"] = "已授权"
             store.authors[record["open_id"]] = record
             store.save()
@@ -113,6 +117,8 @@ def main() -> int:
             print(f"[{label}] 将标记已过期：{len(expired_rows)} 行")
             continue
 
+        if not query_ids:
+            print(f"[{label}] 表里没有可查询的视频 ID，跳过 TikTok 请求")
         matched_rows = set()
         matched = 0
         for item in sheet_rows:
@@ -148,16 +154,16 @@ def main() -> int:
                 updates.extend(_authorize_updates(sheet["sheet_id"], located, auth_only))
         elif matched:
             print(f"[{label}] 这条授权还没绑定作者 ID，只给对上视频的行标已授权。")
-        unmatched = len(counts) - matched - sum(
-            1 for item in sheet_rows if item["video_id"] in counts and not item["tracked"]
-        )
-        unmatched_videos += max(unmatched, 0)
+        missed = len(query_ids) - len(counts)
+        missing_videos += max(missed, 0)
         succeeded_authors.append(label)
-        print(f"[{label}] 公开视频 {len(counts)} 条，写入候选 {matched} 行")
+        print(
+            f"[{label}] 按 ID 查询 {len(query_ids)} 条，返回 {len(counts)} 条，写入候选 {matched} 行"
+        )
 
     print(
         f"合计：成功 {success}，过期打标 {expired}，追踪跳过 {skipped}，"
-        f"账号有但表里没有的视频约 {unmatched_videos}"
+        f"查询未返回约 {missing_videos}"
     )
     summary = _summary(_clock(), succeeded_authors, failed_authors, success)
     if not args.write:
@@ -260,6 +266,22 @@ def _rows_for_author(sheet_rows: list[dict], author_id: str) -> list[dict]:
     if not author_id:
         return []
     return [item for item in sheet_rows if item["tracked"] and item["author_id"] == author_id]
+
+
+def _video_ids_for_author(sheet_rows: list[dict], record: dict) -> list[str]:
+    """只查表里需要的视频：作者 ID 对上的，或历史记录里属于该授权的。"""
+    author_id = record.get("author_id") or ""
+    known = set(record.get("video_ids") or [])
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in sheet_rows:
+        video_id = item.get("video_id") or ""
+        if not video_id or not item.get("tracked") or video_id in seen:
+            continue
+        if (author_id and item.get("author_id") == author_id) or video_id in known:
+            seen.add(video_id)
+            ordered.append(video_id)
+    return ordered
 
 
 def _rows_for_expired(sheet_rows: list[dict], record: dict) -> list[dict]:

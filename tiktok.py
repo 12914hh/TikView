@@ -12,8 +12,10 @@ import requests
 
 AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
 TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
-LIST_URL = "https://open.tiktokapis.com/v2/video/list/"
+QUERY_URL = "https://open.tiktokapis.com/v2/video/query/"
 SCOPES = "user.info.basic,video.list"
+# 官方硬限制：每请求最多 20 个 video_ids
+QUERY_BATCH_SIZE = 20
 
 
 class TikTokError(RuntimeError):
@@ -147,22 +149,20 @@ def refresh_access_token(client_key: str, client_secret: str, refresh_token: str
     return _token_body(response)
 
 
-def list_view_counts(access_token: str) -> dict[str, int]:
-    """返回该授权账号公开视频的播放量。键是视频 ID。"""
+def query_view_counts(access_token: str, video_ids: list[str]) -> dict[str, int]:
+    """按视频 ID 批量查播放量。仅返回属于该授权用户、且接口有 view_count 的项。"""
+    ordered = list(dict.fromkeys(vid.strip() for vid in video_ids if vid and str(vid).strip()))
     counts: dict[str, int] = {}
-    cursor = None
-    for _ in range(50):
-        payload: dict = {"max_count": 20}
-        if cursor is not None:
-            payload["cursor"] = cursor
+    for start in range(0, len(ordered), QUERY_BATCH_SIZE):
+        batch = ordered[start : start + QUERY_BATCH_SIZE]
         response = requests.post(
-            LIST_URL,
+            QUERY_URL,
             params={"fields": "id,view_count"},
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Content-Type": "application/json",
             },
-            json=payload,
+            json={"filters": {"video_ids": batch}},
             timeout=30,
         )
         try:
@@ -178,11 +178,6 @@ def list_view_counts(access_token: str) -> dict[str, int]:
             video_id = str(video.get("id") or "").strip()
             if video_id and video.get("view_count") is not None:
                 counts[video_id] = int(video["view_count"])
-        if not data.get("has_more"):
-            break
-        cursor = data.get("cursor")
-        if cursor is None:
-            break
     return counts
 
 
