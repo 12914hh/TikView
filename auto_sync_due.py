@@ -1,19 +1,24 @@
-"""GitHub 定时任务用。开关打开后，到点或晚点补跑都会执行。"""
+"""GitHub / 服务器定时用。开关打开后，到点或晚点补跑都会执行。"""
 
 from __future__ import annotations
 
 import os
 import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from schedule_conf import load_schedule
 
 BEIJING = timezone(timedelta(hours=8))
+ROOT = Path(__file__).resolve().parent
 
 
 def main() -> int:
+    load_dotenv(ROOT / ".env")
     event = os.environ.get("GITHUB_EVENT_NAME", "")
-    # 只有网页上点 Run workflow 才强制跑；GitHub/Cloudflare 定时都走到点或补跑判断
+    # 只有网页上点 Run workflow 才强制跑；定时都走到点或补跑判断
     force = event == "workflow_dispatch"
     schedule = load_schedule()
     now = datetime.now(BEIJING)
