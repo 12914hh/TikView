@@ -7,7 +7,11 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:  # GitHub 定时步骤还没装依赖；密钥已由 Actions 注入环境变量
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 from schedule_conf import load_schedule
 
